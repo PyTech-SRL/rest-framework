@@ -1,1 +1,3 @@
 httpx
+# https://github.com/OCA/rest-framework/pull/515
+odoo-addon-fastapi @ git+https://github.com/OCA/rest-framework.git@refs/pull/515/head#subdirectory=setup/fastapi
