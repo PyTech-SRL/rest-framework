@@ -169,3 +169,23 @@ class FastAPIHttpCase(HttpCase):
             expected_message="test",
             expected_status_code=status.HTTP_409_CONFLICT,
         )
+
+    def test_url_matching(self):
+        # Test the URL mathing method on the endpoint
+        paths = ["/fastapi", "/fastapi_demo", "/fastapi/v1"]
+        EndPoint = self.env["fastapi.endpoint"]
+        self.assertEqual(
+            EndPoint._find_first_matching_url_path(paths, "/fastapi_demo/test"),
+            "/fastapi_demo",
+        )
+        self.assertEqual(
+            EndPoint._find_first_matching_url_path(paths, "/fastapi/test"), "/fastapi"
+        )
+        self.assertEqual(
+            EndPoint._find_first_matching_url_path(paths, "/fastapi/v2/test"),
+            "/fastapi",
+        )
+        self.assertEqual(
+            EndPoint._find_first_matching_url_path(paths, "/fastapi/v1/test"),
+            "/fastapi/v1",
+        )

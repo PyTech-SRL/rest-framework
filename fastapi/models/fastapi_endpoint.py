@@ -198,6 +198,8 @@ class FastapiEndpoint(models.Model):
         return f"{self._name}:{self.id}:{path}"
 
     def _reset_app(self):
+        self._get_id_by_root_path_map.clear_cache(self)
+        self._get_id_for_path.clear_cache(self)
         self._reset_app_cache_marker.clear_cache(self)
 
     @tools.ormcache()
@@ -211,24 +213,71 @@ class FastapiEndpoint(models.Model):
         """
 
     @api.model
-    @tools.ormcache("path")
-    def get_endpoint(self, path):
-        # try to match the request url with the most similar endpoint
-        endpoints_by_length = self.search([]).sorted(
-            lambda fe: len(fe.root_path), reverse=True
+    def _normalize_url_path(self, path) -> str:
+        """
+        Normalize a URL path:
+        * Remove redundant slashes,
+        * Remove trailing slash (unless it's the root),
+        * Lowercase for case-insensitive matching
+        """
+        parts = [part.lower() for part in path.strip().split("/") if part]
+        return "/" + "/".join(parts)
+
+    @api.model
+    def _is_suburl(self, path, prefix) -> bool:
+        """
+        Check if 'path' is a subpath of 'prefix' in URL logic:
+        * Must start with the prefix followed by a slash
+          This will ensure that the matching is done one the path
+          parts and ensures that e.g. /a/b is not prefix of /a/bc.
+        """
+        path = self._normalize_url_path(path)
+        prefix = self._normalize_url_path(prefix)
+
+        if path == prefix:
+            return True
+        if path.startswith(prefix + "/"):
+            return True
+        return False
+
+    @api.model
+    def _find_first_matching_url_path(self, paths, prefix) -> str | None:
+        """
+        Return the first path that is a subpath of 'prefix',
+        ordered by longest URL path first (most number of segments).
+        """
+        # Sort by number of segments (shallowest first)
+        sorted_paths = sorted(
+            paths,
+            key=lambda p: len(self._normalize_url_path(p).split("/")),
+            reverse=True,
         )
-        endpoint = False
-        while endpoints_by_length:
-            candidate_endpoint = endpoints_by_length[0]
-            if path.startswith(candidate_endpoint.root_path):
-                endpoint = candidate_endpoint
-                break
-            endpoints_by_length -= candidate_endpoint
-        return endpoint
+
+        for path in sorted_paths:
+            if self._is_suburl(prefix, path):
+                return path
+        return None
+
+    @api.model
+    @tools.ormcache()
+    def _get_id_by_root_path_map(self):
+        return {r.root_path: r.id for r in self.search([])}
+
+    @api.model
+    @tools.ormcache("path")
+    def _get_id_for_path(self, path):
+        id_by_path = self._get_id_by_root_path_map()
+        root_path = self._find_first_matching_url_path(id_by_path.keys(), path)
+        return id_by_path.get(root_path)
+
+    @api.model
+    def _get_endpoint(self, path):
+        id_ = self._get_id_for_path(path)
+        return self.browse(id_) if id_ else None
 
     @api.model
     def get_app(self, path):
-        record = self.get_endpoint(path)
+        record = self._get_endpoint(path)
         if not record:
             return None
         app = FastAPI()
@@ -254,7 +303,7 @@ class FastapiEndpoint(models.Model):
     @api.model
     @tools.ormcache("path")
     def get_uid(self, path):
-        record = self.get_endpoint(path)
+        record = self._get_endpoint(path)
         if not record:
             return None
         return record.user_id.id
