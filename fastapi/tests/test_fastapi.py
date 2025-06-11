@@ -4,6 +4,7 @@
 import os
 import unittest
 from contextlib import contextmanager
+from pathlib import Path
 
 from odoo import sql_db
 from odoo.tests.common import HttpCase
@@ -44,6 +45,11 @@ class FastAPIHttpCase(HttpCase):
         response = self.url_open(route, headers={"Accept-language": accept_language})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, expected_lang)
+
+    def endpoint_path(self, endpoint, path):
+        if path[0] == "/":
+            path = path[1:]
+        return str(Path(endpoint.root_path) / path)
 
     def test_call(self):
         route = "/fastapi_demo/demo/"
@@ -199,3 +205,24 @@ class FastAPIHttpCase(HttpCase):
         response = self.url_open(route, timeout=20)
         self.assertEqual(response.status_code, 200)
         self.assertIn(self.fastapi_multi_demo_app.root_path, str(response.url))
+
+    def test_expose_docs(self):
+        response = self.url_open(
+            self.endpoint_path(self.fastapi_demo_app, "docs"), timeout=20
+        )
+        self.assertEqual(response.status_code, 200)
+
+        unexposed_endpoint = self.env["fastapi.endpoint"].create(
+            {
+                "name": "Test Endpoint - non exposed",
+                "root_path": "/test-endpoint/",
+                "app": "demo",
+                "demo_auth_method": "api_key",
+                "expose_fastapi_docs": False,
+            }
+        )
+        unexposed_endpoint._handle_registry_sync()
+        response = self.url_open(
+            self.endpoint_path(unexposed_endpoint, "docs"), timeout=20
+        )
+        self.assertTrue(400 <= response.status_code < 500)
